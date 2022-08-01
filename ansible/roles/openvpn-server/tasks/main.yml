@@ -1,0 +1,277 @@
+
+# Variables
+
+- debug:
+    msg: 'The following client configs will be created: {{ vpn_clients }}'
+
+- name: 'Variables - set local output directory'
+  set_fact:
+    local_output_dir: '{{ role_path }}/../../../data/openvpn'
+  when: local_output_dir == 'DEFAULT'
+
+- debug:
+    msg: 'Client config output directory: {{ local_output_dir }}'
+
+- name: 'Variables - set server common name'
+  set_fact:
+    server_cn: '{{ inventory_hostname }}'
+  when: server_cn == 'DEFAULT'
+
+- debug:
+    msg: 'Dynamically set server common name: {{ server_cn }}'
+  when: server_cn == inventory_hostname
+
+# Apt packages
+
+- name: 'Install required packages'
+  apt:
+    pkg:
+      - 'openvpn'
+      - 'easy-rsa'
+    state: 'present'
+  become: true
+
+# Networking
+
+- name: 'Networking - enable ip forwarding'
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: 1
+    sysctl_set: true
+    state: present
+    reload: true
+  become: true
+
+- name: 'Networking - iptables POSTROUTING'
+  iptables:
+    table: 'nat'
+    chain: 'POSTROUTING'
+    jump: 'MASQUERADE'
+    out_interface: "{{ item }}"
+  loop:
+    - 'eth0'
+    - 'tun0'
+  become: true
+
+- name: 'Networking - iptables ESTABLISHED,RELATED'
+  iptables:
+    chain: 'INPUT'
+    match: 'state'
+    ctstate: 'ESTABLISHED,RELATED'
+    jump: 'ACCEPT'
+    in_interface: '{{ item }}'
+  loop:
+    - 'eth0'
+    - 'tun0'
+  become: true
+
+- name: 'Networking - iptables FORWARD'
+  iptables:
+    chain: 'FORWARD'
+    jump: 'ACCEPT'
+  become: true
+
+# Easy-RSA
+
+- name: 'Easy-RSA - copy folder'
+  copy:
+    src: '/usr/share/easy-rsa'
+    dest: '~{{ ansible_user_id }}/'
+    mode: 'preserve'
+    remote_src: true
+
+- name: 'Easy-RSA - copy default variables'
+  copy:
+    src: '~{{ ansible_user_id }}/easy-rsa/vars.example'
+    dest: '~{{ ansible_user_id }}/easy-rsa/vars'
+    remote_src: true
+
+- name: 'Easy-RSA - replace default variables'
+  replace:
+    path: '~{{ ansible_user_id }}/easy-rsa/vars'
+    regexp: '{{ item.regexp }}'
+    replace: '{{ item.replace }}'
+  loop:
+    - { regexp: '#(set_var EASYRSA_REQ_CN\s+).*', replace: '\1"{{ ca_cn }}"' }
+    - { regexp: '#(set_var EASYRSA_BATCH\s+).*', replace: '\1"yes"' }
+    - { regexp: '#(set_var EASYRSA_REQ_COUNTRY\s+).*', replace: '\1"{{ cert_country }}"' }
+    - { regexp: '#(set_var EASYRSA_REQ_PROVINCE\s+).*', replace: '\1"{{ cert_province }}"' }
+    - { regexp: '#(set_var EASYRSA_REQ_CITY\s+).*', replace: '\1"{{ cert_city }}"' }
+    - { regexp: '#(set_var EASYRSA_REQ_ORG\s+).*', replace: '\1"{{ cert_org }}"' }
+    - { regexp: '#(set_var EASYRSA_REQ_EMAIL\s+).*', replace: '\1"{{ cert_email }}"' }
+    - { regexp: '#(set_var EASYRSA_REQ_OU\s+).*', replace: '\1"{{ cert_ou }}"' }
+
+- name: 'Easy-RSA - init PKI'
+  command: './easyrsa init-pki'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+- name: 'Easy-RSA - generate DH ("This is going to take a long time")'
+  command: './easyrsa gen-dh'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+# Certificates
+
+- name: 'Certificates - build CA'
+  command: './easyrsa build-ca nopass'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+- name: 'Certificates - create server CSR'
+  command: './easyrsa --req-cn="{{ server_cn }}" gen-req server nopass'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+- name: 'Certificates - sign server certificate'
+  command: './easyrsa sign-req server server'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+# OpenVPN server
+
+- name: 'OpenVPN server - copy PKI data'
+  copy:
+    src: '~{{ ansible_user_id }}/easy-rsa/{{ item }}'
+    dest: '/etc/openvpn/'
+    mode: 0600
+    remote_src: true
+  loop:
+    - 'pki/dh.pem'
+    - 'pki/ca.crt'
+    - 'pki/private/server.key'
+    - 'pki/issued/server.crt'
+  become: true
+
+- name: 'OpenVPN server - generate shared secret key'
+  command: 'openvpn --genkey --secret ta.key'
+  args:
+    chdir: '/etc/openvpn/'
+  become: true
+
+- name: 'OpenVPN server - copy default server config'
+  copy:
+    src: '/usr/share/doc/openvpn/examples/sample-config-files/server.conf.gz'
+    dest: '/etc/openvpn/'
+    remote_src: true
+  become: true
+
+- name: 'OpenVPN server - decompress default server config'
+  command: 'gunzip --force server.conf.gz'
+  args:
+    chdir: '/etc/openvpn/'
+  become: true
+
+- name: 'OpenVPN server - replace defaults in server config'
+  replace:
+    path: '/etc/openvpn/server.conf'
+    regexp: '{{ item.regexp }}'
+    replace: '{{ item.replace }}'
+  loop:
+    - { regexp: '^port .*', replace: 'port {{ vpn_port }}' }
+    - { regexp: '^proto .*', replace: 'proto {{ vpn_protocol }}' }
+    - { regexp: '^dh .*', replace: 'dh dh.pem' }
+    - { regexp: '^server .*', replace: 'server {{ network_ip }} {{ subnet_mask }}' }
+    - { regexp: '^;(client-to-client)', replace: '\1' }
+    - { regexp: '^;tls-auth.*', replace: 'tls-auth ta.key 0 # This file is secret\nkey-direction 0/' }
+    - { regexp: '^;(user nobody)', replace: '\1' }
+    - { regexp: '^;(group nogroup)', replace: '\1' }
+    - { regexp: '^explicit-exit-notify.*', replace: 'explicit-exit-notify 0' }
+  become: true
+
+- name: 'OpenVPN server - enable and start service'
+  systemd:
+    name: 'openvpn@server'
+    state: 'started'
+    enabled: true
+  become: true
+
+# OpenVPN client template
+
+- name: 'OpenVPN client template - create directory'
+  file:
+    path: '~{{ ansible_user_id }}/openvpn-clients/'
+    state: 'directory'
+
+- name: 'OpenVPN client template - copy default client config'
+  copy:
+    src: '/usr/share/doc/openvpn/examples/sample-config-files/client.conf'
+    dest: '~{{ ansible_user_id }}/openvpn-clients/template.conf'
+    remote_src: true
+
+- name: 'OpenVPN client template - replace defaults in client config'
+  replace:
+    path: '~{{ ansible_user_id }}/openvpn-clients/template.conf'
+    regexp: '{{ item.regexp }}'
+    replace: '{{ item.replace }}'
+  loop:
+    - { regexp: '^remote .*', replace: 'remote {{ server_cn }} {{ vpn_port }}' }
+    - { regexp: '^port .*', replace: 'port {{ vpn_port }}' }
+    - { regexp: '^proto .*', replace: 'proto {{ vpn_protocol }}' }
+    - { regexp: '^ca ca.crt', replace: ';ca ca.crt' }
+    - { regexp: '^cert client.crt', replace: ';cert client.crt' }
+    - { regexp: '^key client.key', replace: ';key client.key' }
+    - { regexp: ';tls-auth ta.key 1', replace: ';tls-auth ta.key 1\nkey-direction 1' }
+    - { regexp: '^;(user nobody)', replace: '\1' }
+    - { regexp: '^;(group nogroup)', replace: '\1' }
+
+- name: 'OpenVPN client template - read CA'
+  slurp:
+    src: '~{{ ansible_user_id }}/easy-rsa/pki/ca.crt'
+  register: ca_cert
+
+- name: 'OpenVPN client template - read shared secret'
+  slurp:
+    src: '/etc/openvpn/ta.key'
+  register: ta_key
+  become: true
+
+- name: 'OpenVPN client template - add PKI info and optional settings to template config'
+  blockinfile:
+    path: '~{{ ansible_user_id }}/openvpn-clients/template.conf'
+    block: |
+      <ca>
+      {{ ca_cert.content | b64decode }}</ca>
+      <tls-auth>
+      {{ ta_key.content | b64decode | regex_replace('^#.*$\n', multiline=True) }}</tls-auth>
+      
+      # Client certificates
+
+      <cert>
+      REPLACE_WITH_CLIENT_CERTIFICATE
+      </cert>
+      <key>
+      REPLACE_WITH_CLIENT_KEY
+      </key>
+
+      # Optional settings
+
+      # Uncomment to force DNS over specific server
+      #dhcp-option DNS 1.1.1.1
+      #script-security 2
+      #up /etc/openvpn/update-resolv-conf
+      #down /etc/openvpn/update-resolv-conf
+
+      # Uncomment to forward all traffic over VPN (DNS excluded)
+      #redirect-gateway def1
+
+- name: 'OpenVPN client template - remove ANSIBLE MANAGED BLOCK'
+  replace:
+    path: '~{{ ansible_user_id }}/openvpn-clients/template.conf'
+    regexp: '.*ANSIBLE MANAGED BLOCK.*'
+    replace: ''
+
+# OpenVPN clients
+
+- name: 'OpenVPN clients - run client generation tasks'
+  include_tasks: 'generate-client-config.yml'
+  loop: '{{ vpn_clients }}'
+  loop_control:
+    loop_var: client
+
+- name: 'OpenVPN clients - download'
+  fetch:
+    src: '~{{ ansible_user_id }}/openvpn-clients/{{ item }}.ovpn'
+    dest: '{{ local_output_dir }}/{{ server_cn }}-{{ item }}.ovpn'
+    flat: yes
+  loop: "{{ vpn_clients }}"

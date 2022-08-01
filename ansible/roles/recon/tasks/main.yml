@@ -1,0 +1,318 @@
+---
+
+# Create Directory Structure
+
+- name: 'Create install directory'
+  file:
+    path: '~{{ ansible_user_id }}/install/'
+    state: 'directory'
+
+- name: 'Create tools directory'
+  file:
+    path: '~{{ ansible_user_id }}/tools/'
+    state: 'directory'
+
+- name: 'Create wordlists directory'
+  file:
+    path: '~{{ ansible_user_id }}/wordlists/'
+    state: 'directory'
+
+# Setup
+
+- name: 'Install required packages'
+  apt:
+    pkg:
+      - 'build-essential'
+      - 'python3'
+      - 'python3-pip'
+      - 'python3-setuptools'
+      - 'python3-venv'
+      - 'unzip'
+    state: 'present'
+  become: true
+
+- name: 'Install go snap package'
+  snap:
+    name: 'go'
+    classic: true
+    state: 'present'
+  become: true
+
+- name: 'Add Go path'
+  copy:
+    dest: '/etc/profile.d/go-path.sh'
+    content: 'PATH=$PATH:~/go/bin'
+  become: true
+
+# Apt packages
+
+- name: 'Install packages from apt'
+  apt:
+    pkg:
+      - 'nmap'
+      - 'whois'
+      - 'jq'
+    state: 'present'
+  become: true
+
+# Snap packages
+
+- name: 'Install packages from snap'
+  snap:
+    name:
+      - 'amass'
+  become: true
+
+# Host Discovery
+
+- name: 'hardCIDR'
+  git:
+    repo: 'https://github.com/trustedsec/hardcidr'
+    dest: '~{{ ansible_user_id }}/tools/hardcidr'
+
+- name: 'subfinder'
+  shell: 'go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'
+
+- name: 'Sudomy - clone'
+  git:
+    repo: 'https://github.com/screetsec/Sudomy'
+    dest: '~{{ ansible_user_id }}/tools/Sudomy'
+    recursive: true
+
+- name: 'Sudomy - install'
+  pip:
+    chdir: '~{{ ansible_user_id }}/tools/Sudomy'
+    requirements: 'requirements.txt'
+    virtualenv: 'venv'
+    virtualenv_command: 'python3 -m venv venv'
+
+- name: 'Shodan CLI'
+  pip:
+    name: 'shodan'
+  become: true
+
+- name: 'massdns - clone'
+  git:
+    repo: 'https://github.com/blechschmidt/massdns'
+    dest: '~{{ ansible_user_id }}/install/massdns'
+
+- name: 'massdns - make'
+  make:
+    chdir: '~{{ ansible_user_id }}/install/massdns'
+
+- name: 'massdns - install'
+  make:
+    chdir: '~{{ ansible_user_id }}/install/massdns'
+    target: 'install'
+  become: true
+
+- name: 'shuffledns'
+  shell: 'go install github.com/projectdiscovery/shuffledns/cmd/shuffledns@latest'
+
+- name: 'puredns'
+  shell: 'go install github.com/d3mondev/puredns/v2@latest'
+
+- name: 'dnsgen'
+  pip:
+    name: 'dnsgen'
+  become: true
+
+- name: 'altdns'
+  pip:
+    name: 'py-altdns'
+  become: true
+
+- name: 'gotator'
+  shell: 'go install github.com/Josue87/gotator@latest'
+
+- name: 'HostHunter - clone'
+  git:
+    repo: 'https://github.com/SpiderLabs/HostHunter'
+    dest: '~{{ ansible_user_id }}/tools/HostHunter'
+
+- name: 'HostHunter - install'
+  pip:
+    chdir: '~{{ ansible_user_id }}/tools/HostHunter'
+    requirements: 'requirements.txt'
+    virtualenv: 'venv'
+    virtualenv_command: 'python3 -m venv venv'
+
+# Service Discovery
+
+- name: 'httprobe'
+  shell: 'go install github.com/tomnomnom/httprobe@latest'
+
+- name: 'masscan - clone'
+  git:
+    repo: 'https://github.com/robertdavidgraham/masscan'
+    dest: '~{{ ansible_user_id }}/install/masscan'
+
+- name: 'masscan - make'
+  make:
+    chdir: '~{{ ansible_user_id }}/install/masscan'
+    params:
+      NUM_THREADS: 4
+
+- name: 'masscan - install'
+  make:
+    chdir: '~{{ ansible_user_id }}/install/masscan'
+    target: 'install'
+  become: true
+
+- name: 'smap'
+  shell: 'go install github.com/s0md3v/smap/cmd/smap@latest'
+
+- name: 'httpx'
+  shell: 'go install github.com/projectdiscovery/httpx/cmd/httpx@latest'
+
+- name: 'naabu - dependencies'
+  apt:
+    pkg:
+      - 'libpcap-dev'
+    state: 'present'
+  become: true
+
+- name: 'naabu'
+  shell: 'go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest'
+
+# URL Discovery
+
+- name: 'gobuster'
+  shell: 'go install github.com/OJ/gobuster/v3@latest'
+
+- name: 'waybackurls'
+  shell: 'go install github.com/tomnomnom/waybackurls@latest'
+
+- name: 'gau'
+  shell: 'go install github.com/lc/gau/v2/cmd/gau@latest'
+
+# Screenshots
+
+- name: 'gowitness'
+  shell: 'go install github.com/sensepost/gowitness@latest'
+
+# Fuzzing
+
+- name: 'wfuzz - required packages'
+  apt:
+    pkg:
+      - 'libcurl4-openssl-dev'
+      - 'libssl-dev'
+    state: 'present'
+  become: true
+
+- name: 'wfuzz'
+  pip:
+    name: 'wfuzz'
+  become: true
+
+- name: 'ffuf'
+  shell: 'go install github.com/ffuf/ffuf@latest'
+
+# Cloud
+
+- name: 'cloud_enum - clone'
+  git:
+    repo: 'https://github.com/initstring/cloud_enum'
+    dest: '~{{ ansible_user_id }}/tools/cloud_enum'
+
+- name: 'cloud_enum - install'
+  pip:
+    chdir: '~{{ ansible_user_id }}/tools/cloud_enum'
+    requirements: 'requirements.txt'
+    virtualenv: 'venv'
+    virtualenv_command: 'python3 -m venv venv'
+
+- name: 'CloudScraper - clone'
+  git:
+    repo: 'https://github.com/jordanpotti/CloudScraper'
+    dest: '~{{ ansible_user_id }}/tools/CloudScraper'
+
+- name: 'CloudScraper - install'
+  pip:
+    chdir: '~{{ ansible_user_id }}/tools/CloudScraper'
+    requirements: 'requirements.txt'
+    virtualenv: 'venv'
+    virtualenv_command: 'python3 -m venv venv'
+
+# Misc
+
+- name: 'nuclei'
+  shell: 'go install github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest'
+
+- name: 'spoofcheck - clone'
+  git:
+    repo: 'https://github.com/BishopFox/spoofcheck'
+    dest: '~{{ ansible_user_id }}/tools/spoofcheck'
+
+- name: 'spoofcheck - install'
+  pip:
+    chdir: '~{{ ansible_user_id }}/tools/spoofcheck'
+    requirements: 'requirements.txt'
+    virtualenv: 'venv'
+    virtualenv_command: 'python3 -m venv venv'
+
+- name: 'trufflehog - clone'
+  git:
+    repo: 'https://github.com/trufflesecurity/trufflehog'
+    dest: '~{{ ansible_user_id }}/install/trufflehog'
+
+- name: 'trufflehog - install'
+  shell: 'go install'
+  args:
+    chdir: '~{{ ansible_user_id }}/install/trufflehog'
+
+- name: 'gitleaks - create working dir'
+  file:
+    path: '~{{ ansible_user_id }}/install/gitleaks/'
+    state: 'directory'
+
+- name: 'gitleaks - get latest release'
+  uri:
+    url: 'https://api.github.com/repos/zricethezav/gitleaks/releases/latest'
+    return_content: true
+  register: 'gitleaks_latest'
+
+- name: 'gitleaks - download'
+  unarchive: 
+    src: 'https://github.com/zricethezav/gitleaks/releases/download/{{ gitleaks_latest.json.tag_name }}/gitleaks_{{ gitleaks_latest.json.tag_name | regex_replace("^v","") }}_linux_x64.tar.gz'
+    dest: '~{{ ansible_user_id }}/install/gitleaks/'
+    remote_src: true
+
+- name: 'gitleaks - copy to path'
+  copy:
+    src: '~{{ ansible_user_id }}/install/gitleaks/gitleaks'
+    dest: '/usr/local/bin/gitleaks'
+    mode: '0755'
+    remote_src: true
+  become: true
+
+- name: 'yalis'
+  shell: 'go install github.com/eatonchips/yalis@latest'
+
+- name: 'ntlm_challenger - clone'
+  git:
+    repo: 'https://github.com/nopfor/ntlm_challenger'
+    dest: '~{{ ansible_user_id }}/tools/ntlm_challenger'
+
+- name: 'ntlm_challenger - install'
+  pip:
+    chdir: '~{{ ansible_user_id }}/tools/ntlm_challenger'
+    requirements: 'requirements.txt'
+    virtualenv: 'venv'
+    virtualenv_command: 'python3 -m venv venv'
+
+# Wordlists
+
+- name: 'wordlists - copy download script'
+  copy:
+    src: 'download-wordlists.sh'
+    dest: '~{{ ansible_user_id }}/wordlists/download-wordlists.sh'
+    mode: '0755'
+
+# Cleanup
+
+- name: 'Removing install directory'
+  file:
+    path: '~{{ ansible_user_id }}/install/'
+    state: 'absent'

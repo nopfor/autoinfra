@@ -1,0 +1,42 @@
+
+# Apt packages
+
+- name: 'Install required packages'
+  apt:
+    pkg:
+      - 'squid'
+      - 'apache2-utils'
+    state: 'present'
+  become: true
+
+# Squid
+
+- name: 'Backup squid configuration'
+  copy:
+    src: '/etc/squid/squid.conf'
+    dest: '/etc/squid/squid.conf.bkp'
+    remote_src: true
+  become: true
+
+- name: 'Copy config template'
+  template:
+    src: 'squid.conf.j2'
+    dest: '/etc/squid/squid.conf'
+  become: true
+
+- name: 'Remove any existing proxy credentials'
+  file:
+    path: '/etc/squid/passwords'
+    state: 'absent'
+  become: true
+
+- name: 'Set proxy credentials'
+  command: 'htpasswd -b -c /etc/squid/passwords "{{ proxy_user }}" "{{ proxy_pass }}"'
+  become: true
+
+- name: 'Restart service'
+  systemd:
+    name: 'squid'
+    state: 'restarted'
+    daemon_reload: true
+  become: true

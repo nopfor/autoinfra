@@ -1,0 +1,28 @@
+---
+
+# Client certificates
+
+vpn_clients:
+  - 'client'
+
+local_output_dir: 'DEFAULT'
+
+# Server configuration
+
+vpn_port: 443
+vpn_protocol: 'tcp'
+
+network_ip: '10.8.0.0'
+subnet_mask: '255.255.255.0'
+
+# Certificate Information
+
+ca_cn: 'VPN CA'
+server_cn: 'DEFAULT'
+
+cert_country: 'US'
+cert_province: 'NY'
+cert_city: 'New York'
+cert_org: 'autoinfra'
+cert_email: 'admin@example.com'
+cert_ou: 'VPN'

@@ -1,0 +1,9 @@
+---
+
+allow_networks: []
+deny_networks: []
+
+proxy_user: 'autoinfra'
+proxy_pass: 'autoinfra'
+
+proxy_port: 8312

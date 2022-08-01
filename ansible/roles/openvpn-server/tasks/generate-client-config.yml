@@ -1,0 +1,44 @@
+
+# Variables
+
+- debug:
+    msg: 'Creating OpenVPN client config: {{ client }}'
+
+# Certificates
+
+- name: 'OpenVPN client certificates - create client CSRs'
+  command: './easyrsa --req-cn="{{ client }}" gen-req "{{ client }}" nopass'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+- name: 'OpenVPN client certificates - sign client certificates'
+  command: './easyrsa sign-req client "{{ client }}"'
+  args:
+    chdir: '~{{ ansible_user_id }}/easy-rsa/'
+
+# Config
+
+- name: 'OpenVPN client config - copy configs from client template'
+  copy:
+    src: '~{{ ansible_user_id }}/openvpn-clients/template.conf'
+    dest: '~{{ ansible_user_id }}/openvpn-clients/{{ client }}.ovpn'
+    remote_src: true
+
+- name: 'OpenVPN client config - read cert'
+  command: 'awk "/BEGIN CERTIFICATE/,EOF" "~{{ ansible_user_id }}/easy-rsa/pki/issued/{{ client }}.crt"'
+  register: client_cert
+
+- name: 'OpenVPN client config - read key'
+  slurp:
+    src: '~{{ ansible_user_id }}/easy-rsa/pki/private/{{ client }}.key'
+  register: client_key
+
+- name: 'OpenVPN client config - replace cert and key'
+  replace:
+    path: '~{{ ansible_user_id }}/openvpn-clients/{{ client }}.ovpn'
+    regexp: '{{ item.regexp }}'
+    replace: '{{ item.replace }}'
+  loop:
+    - { regexp: '^REPLACE_WITH_CLIENT_CERTIFICATE$', replace: '{{ client_cert.stdout }}' }
+    - { regexp: '^REPLACE_WITH_CLIENT_KEY$\n', replace: '{{ client_key.content | b64decode }}' }
+  no_log: true

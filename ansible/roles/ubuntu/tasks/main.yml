@@ -1,0 +1,17 @@
+---
+
+- name: 'Update apt'
+  apt:
+    update_cache: true
+    force_apt_get: true
+  become: true
+
+- name: 'Upgrade all apt packages'
+  apt:
+    upgrade: 'dist'
+    force_apt_get: true
+  register: 'apt_status'
+  until: 'apt_status is success'
+  delay: 6
+  retries: 10
+  become: true

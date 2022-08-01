@@ -1,0 +1,32 @@
+---
+
+# Apt packages
+
+- name: 'Install required packages'
+  apt:
+    pkg:
+      - 'socat'
+      - 'screen'
+    state: 'present'
+  become: true
+
+# Socat
+
+- name: 'Start socat TCP redirector'
+  command: 'screen -d -m socat -d -v tcp-listen:{{ listen_port }},su=nobody,fork,reuseaddr tcp-connect:{{ remote_host }}:{{ remote_port }}'
+  async: 10
+  poll: 1
+  become: true
+  when: '"tcp" in protocol|lower'
+
+- name: 'Start socat UDP redirector'
+  command: 'screen -d -m socat -d -v UDP4-RECVFROM:{{ listen_port }},fork,reuseaddr UDP4-SENDTO:{{ remote_host }}:{{ remote_port }}'
+  async: 10
+  poll: 1
+  become: true
+  when: '"udp" in protocol|lower'
+
+# Tests
+
+# screen -d -m socat -d -v tcp-listen:443,su=nobody,fork,reuseaddr tcp-connect:142.251.40.110:443
+# screen -d -m socat -d -v UDP4-RECVFROM:53,fork,reuseaddr UDP4-SENDTO:8.8.8.8:53

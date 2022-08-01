@@ -1,0 +1,112 @@
+
+# Example rule allowing access from your local networks.
+# Adapt to list your (internal) IP networks from where browsing
+# should be allowed
+acl localnet src 0.0.0.1-0.255.255.255  # RFC 1122 "this" network (LAN)
+acl localnet src 10.0.0.0/8             # RFC 1918 local private network (LAN)
+acl localnet src 100.64.0.0/10          # RFC 6598 shared address space (CGN)
+acl localnet src 169.254.0.0/16         # RFC 3927 link-local (directly plugged) machines
+acl localnet src 172.16.0.0/12          # RFC 1918 local private network (LAN)
+acl localnet src 192.168.0.0/16         # RFC 1918 local private network (LAN)
+acl localnet src fc00::/7               # RFC 4193 local private network range
+acl localnet src fe80::/10              # RFC 4291 link-local (directly plugged) machines
+
+# autoinfra: Cloud management hosts
+acl cloud_mgmt dst 169.254.169.254
+
+{% if allow_networks is defined and allow_networks|length > 0 %}
+# autoinfra: allow networks
+{% for network in allow_networks %}
+acl allow_networks src {{ network }}
+{% endfor %}
+{% endif %}
+
+{% if deny_networks is defined and deny_networks|length > 0 %}
+# autoinfra: deny networks
+{% for network in deny_networks %}
+acl deny_networks src {{ network }}
+{% endfor %}
+{% endif %}
+
+acl SSL_ports port 443
+acl Safe_ports port 80          # http
+acl Safe_ports port 21          # ftp
+acl Safe_ports port 443         # https
+acl Safe_ports port 70          # gopher
+acl Safe_ports port 210         # wais
+acl Safe_ports port 1025-65535  # unregistered ports
+acl Safe_ports port 280         # http-mgmt
+acl Safe_ports port 488         # gss-http
+acl Safe_ports port 591         # filemaker
+acl Safe_ports port 777         # multiling http
+acl CONNECT method CONNECT
+
+# Deny requests to certain unsafe ports
+http_access deny !Safe_ports
+
+# Deny CONNECT to other than secure SSL ports
+http_access deny CONNECT !SSL_ports
+
+# Only allow cachemgr access from localhost
+http_access allow localhost manager
+http_access deny manager
+
+# Deny everything to localhost
+http_access deny to_localhost
+
+#
+#
+# INSERT YOUR OWN RULE(S) HERE TO ALLOW ACCESS FROM YOUR CLIENTS
+#
+include /etc/squid/conf.d/*
+
+# Basic auth
+auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwords
+auth_param basic realm proxy
+acl authenticated proxy_auth REQUIRED
+http_access allow authenticated
+
+# autoinfra: deny everything to AWS
+http_access deny cloud_mgmt
+
+{% if deny_networks is defined and deny_networks|length > 0 %}
+# autoinfra: apply deny networks
+http_access deny deny_networks
+{% endif %}
+
+{% if allow_networks is defined and allow_networks|length > 0 %}
+# autoinfra: apply allow networks
+http_access allow allow_networks
+{% endif %}
+
+# Example rule allowing access from your local networks.
+# Adapt localnet in the ACL section to list your (internal) IP networks
+# from where browsing should be allowed
+#http_access allow localnet
+http_access allow localhost
+
+# And finally deny all other access to this proxy
+http_access deny all
+
+# Squid normally listens to port 3128
+http_port {{ proxy_port }}
+
+# Prefer IPv4
+dns_v4_first on
+
+# Do not send X-Forwarded-For header
+forwarded_for delete
+
+# Remove additional headers
+via off
+
+# Leave coredumps in the first cache dir
+coredump_dir /var/spool/squid
+
+#
+# Add any of your own refresh_pattern entries above these.
+#
+refresh_pattern ^ftp:        1440    20%    10080
+refresh_pattern ^gopher:    1440    0%    1440
+refresh_pattern -i (/cgi-bin/|\?) 0    0%    0
+refresh_pattern .        0    20%    4320
